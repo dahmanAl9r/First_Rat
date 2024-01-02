@@ -2,4 +2,5 @@
 this is a remote access trojan made by Yuji....(Dahman)
 
 
-i've just made the server and client :P
+i've made only the connection system between the server and client :p 
+gonna upadete evrything latter on..
